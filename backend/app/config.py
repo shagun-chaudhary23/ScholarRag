@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WORKSPACE_DATA_DIR = BASE_DIR / "data"
