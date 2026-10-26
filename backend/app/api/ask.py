@@ -33,7 +33,10 @@ def _get_reranker():
     try:
         from sentence_transformers import CrossEncoder
         logger.info("Loading cross-encoder reranker '%s'...", model_name)
-        model = CrossEncoder(model_name, device="cpu")
+        try:
+            model = CrossEncoder(model_name, device="cpu", local_files_only=True)
+        except Exception:
+            model = CrossEncoder(model_name, device="cpu", local_files_only=False)
         _reranker_cache[model_name] = model
         logger.info("Reranker loaded.")
         return model
@@ -41,6 +44,16 @@ def _get_reranker():
         logger.warning("Could not load reranker: %s. Skipping reranking.", e)
         _reranker_cache[model_name] = None
         return None
+
+def warmup_reranker():
+    """Pre-warm reranker in memory so queries don't hit a cold-start penalty."""
+    try:
+        r = _get_reranker()
+        if r is not None:
+            r.predict([("warmup", "warmup passage")], batch_size=1)
+            logger.info("Reranker pre-warmed successfully.")
+    except Exception as e:
+        logger.warning("Reranker warmup error: %s", e)
 
 
 def _reciprocal_rank_fusion(
@@ -75,23 +88,34 @@ def _build_rag_prompt(question: str, chunks: List[Dict], answer_style: str) -> t
     """Build system + user prompt from retrieved chunks."""
 
     style_instructions = {
-        "concise": "Give a direct, concise 2–3 sentence answer. Include the most relevant citation numbers.",
-        "detailed": "Give a comprehensive, well-structured answer with all relevant details from the context. Use bullet points or numbered lists where helpful.",
+        "concise": (
+            "Give a direct, concise answer in 3–5 sentences covering the core idea. "
+            "Add at most 1–2 citation numbers only for the most important claim."
+        ),
+        "detailed": (
+            "Write a thorough, well-structured academic answer. "
+            "Start with a clear definition or overview paragraph. "
+            "Then elaborate with key concepts, explanations, and examples found in the material — use paragraphs or a short numbered list where it improves clarity. "
+            "Aim for 150–300 words. Cite sources sparingly — only use [1], [2] etc. at the end of a paragraph or for a critical fact, not after every sentence."
+        ),
         "exam-5-mark": (
             "Answer in the format of a university exam 5-mark answer:\n"
-            "1. Definition (1 mark)\n2. Key Points / Explanation (3 marks)\n3. Conclusion / Summary (1 mark)"
+            "1. Definition (1 mark)\n2. Key Points / Explanation (3 marks)\n3. Conclusion / Summary (1 mark).\n"
+            "Write at least 3–4 sentences per section. Cite the source once per section at most."
         ),
         "explain-like-beginner": (
-            "Explain in very simple terms, using everyday analogies. Avoid jargon. "
-            "Make it easy for someone with no background in the subject."
+            "Explain in very simple terms using everyday analogies. Avoid jargon. "
+            "Write at least 3 paragraphs so the reader truly understands. "
+            "Make it easy for someone with absolutely no background in the subject."
         ),
     }.get(answer_style, "Answer the question clearly and accurately based on the provided context.")
 
     system_prompt = (
-        "You are ScholarRAG, an academic assistant that ONLY answers from the provided course material. "
-        "You NEVER use outside knowledge. If the answer is not in the context, say: "
-        "'This information is not present in your uploaded materials.' "
-        "Always cite sources using [1], [2], etc. referencing the context chunks given."
+        "You are ScholarRAG, a knowledgeable academic assistant. "
+        "You ONLY answer from the provided course material context — never from outside knowledge. "
+        "If the answer is not in the context, say: 'This information is not present in your uploaded materials.' "
+        "Use citations like [1], [2] sparingly — only once per key claim or at the end of a paragraph, "
+        "NOT after every sentence. Avoid repeating the same citation multiple times in a row."
     )
 
     context_blocks = []
@@ -184,11 +208,15 @@ async def ask_workspace(
         reranker = await asyncio.to_thread(_get_reranker)
         if reranker is not None:
             try:
-                pairs = [(question, c["content"]) for c in fused]
-                cross_scores = await asyncio.to_thread(reranker.predict, pairs)
-                for c, sc in zip(fused, cross_scores):
+                # Score top 10 fused candidates to keep CPU latency under 0.8s
+                candidates = fused[:10]
+                remaining = fused[10:]
+                pairs = [(question, c["content"]) for c in candidates]
+                cross_scores = await asyncio.to_thread(reranker.predict, pairs, batch_size=16)
+                for c, sc in zip(candidates, cross_scores):
                     c["cross_score"] = float(sc)
-                fused.sort(key=lambda x: x.get("cross_score", 0.0), reverse=True)
+                candidates.sort(key=lambda x: x.get("cross_score", 0.0), reverse=True)
+                fused = candidates + remaining
             except Exception as e:
                 logger.warning("Reranker inference failed: %s", e)
 

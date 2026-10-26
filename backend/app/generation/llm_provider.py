@@ -305,6 +305,8 @@ class GeminiProvider(LLMProvider):
                             if candidates:
                                 parts = candidates[0].get("content", {}).get("parts", [])
                                 for part in parts:
+                                    if part.get("thought", False):
+                                        continue
                                     text = part.get("text", "")
                                     if text:
                                         yield text
@@ -340,7 +342,7 @@ class GeminiProvider(LLMProvider):
                 candidates = data.get("candidates", [])
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
-                    return "".join(part.get("text", "") for part in parts)
+                    return "".join(part.get("text", "") for part in parts if not part.get("thought", False))
                 return ""
         except Exception as e:
             raise LLMProviderError(f"Gemini completion error: {str(e)}")

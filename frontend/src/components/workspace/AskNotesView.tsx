@@ -282,7 +282,7 @@ export const AskNotesView: React.FC<Props> = ({ workspaceId, workspaceName, docu
           question,
           answer_style: answerStyle,
           unit_filter: unitFilter || null,
-          top_k_final: 5,
+          top_k_final: 3,
         }),
       });
 

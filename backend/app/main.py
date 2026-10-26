@@ -1,5 +1,6 @@
 import time
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,20 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting %s v%s...", settings.APP_NAME, settings.APP_VERSION)
     init_db()
+    
+    # Pre-warm AI models in background thread so user queries are instant without cold-start delay
+    async def _warmup_background():
+        try:
+            loop = asyncio.get_running_loop()
+            from backend.app.retrieval.embedder import warmup_embedder
+            from backend.app.api.ask import warmup_reranker
+            await loop.run_in_executor(None, warmup_embedder)
+            await loop.run_in_executor(None, warmup_reranker)
+            logger.info("All AI models pre-warmed and ready for instant Q&A.")
+        except Exception as e:
+            logger.warning("Background warmup notice: %s", e)
+
+    asyncio.create_task(_warmup_background())
     yield
     logger.info("Shutting down %s...", settings.APP_NAME)
 

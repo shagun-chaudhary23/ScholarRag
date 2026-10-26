@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_INGESTION: int = 1
     
     # LLM Settings
-    DEFAULT_LLM_PROVIDER: Literal["ollama", "openai", "gemini"] = "ollama"
+    DEFAULT_LLM_PROVIDER: Literal["ollama", "openai", "gemini"] = "gemini"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"
     
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     
     # Embedding Models
     EMBEDDING_MODEL_DEFAULT: str = "BAAI/bge-small-en-v1.5"
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # Retrieval Hyperparameters
     TOP_K_DENSE: int = 20
     TOP_K_BM25: int = 20
-    TOP_K_RERANK: int = 5
+    TOP_K_RERANK: int = 3
     RELEVANCE_SCORE_THRESHOLD: float = 0.35  # Threshold below which abstention triggers
     
     # Ingestion Constraints

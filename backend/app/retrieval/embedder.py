@@ -10,7 +10,6 @@ _model_cache = {}
 def get_embedder(model_name: Optional[str] = None):
     name = model_name or settings.EMBEDDING_MODEL_DEFAULT
     if name not in _model_cache:
-        # Check if offline mode requested or HF is available
         if os.environ.get("SCHOLARRAG_OFFLINE_EMBEDDINGS", "0") == "1":
             _model_cache[name] = None
             return None
@@ -18,13 +17,26 @@ def get_embedder(model_name: Optional[str] = None):
         try:
             logger.info("Loading embedding model '%s' on CPU...", name)
             from sentence_transformers import SentenceTransformer
-            # Fast local check
-            _model_cache[name] = SentenceTransformer(name, device="cpu", local_files_only=False)
+            # Try loading directly from local HF cache first for zero network delay
+            try:
+                _model_cache[name] = SentenceTransformer(name, device="cpu", local_files_only=True)
+            except Exception:
+                _model_cache[name] = SentenceTransformer(name, device="cpu", local_files_only=False)
             logger.info("Embedding model '%s' loaded successfully.", name)
         except Exception as e:
             logger.warning("SentenceTransformer '%s' not cached locally or offline: %s. Using local vector encoder.", name, str(e))
             _model_cache[name] = None
     return _model_cache.get(name)
+
+def warmup_embedder(model_name: Optional[str] = None):
+    """Pre-warm the embedder in memory so the first user query doesn't experience a cold-start delay."""
+    try:
+        emb = get_embedder(model_name)
+        if emb is not None:
+            emb.encode(["warmup"], show_progress_bar=False)
+            logger.info("Embedder '%s' pre-warmed.", model_name or settings.EMBEDDING_MODEL_DEFAULT)
+    except Exception as e:
+        logger.warning("Embedder warmup error: %s", e)
 
 def _fallback_embed(text: str, dim: int = 384) -> List[float]:
     """Fast, deterministic semantic-hash vector representation (384-dim) for offline environments."""
