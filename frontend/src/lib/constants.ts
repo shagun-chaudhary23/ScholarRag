@@ -1,4 +1,4 @@
-export const API_BASE_URL = "http://localhost:8001/api/v1";
+export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8001/api/v1";
 
 export const THEME_COLORS = [
   { id: "violet", name: "Aurora Violet", gradient: "from-[#7C6CFF]/80 via-[#5CC8FF]/60 to-[#121A33]", bg: "#7C6CFF" },
